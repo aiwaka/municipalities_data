@@ -169,7 +169,7 @@ def make_json_data(tree):
         manicipality["fullname"] = fullname
         # manicipality["name"] = getattr(node, "disambiguation", "") + node.name
         manicipality["name"] = name
-        manicipality["ruby"] = node.ruby
+        manicipality["smallText"] = node.ruby
         result.append(manicipality)
 
     return json.dumps(result, indent=2, ensure_ascii=False)
