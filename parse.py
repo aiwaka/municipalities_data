@@ -38,24 +38,27 @@ class Tree:
         if disambiguation:
             new_node.disambiguation = disambiguation
         current_node = self.root  # 上から順番に見ていくために保持するnode
-        if parents_set:
-            # 親世代をすべてみつけるまでループ
-            while parents_set:
-                # 今見ているノードの子を集合としてとる
-                current_children_set = set(
-                    child.name for child in current_node.children
-                )
-                next_node_name = (parents_set & current_children_set).pop()
-                parents_set.discard(next_node_name)
-                if current_node.children:
-                    current_node = [
-                        child
-                        for child in current_node.children
-                        if child.name == next_node_name
-                    ][0]
-            new_node.parent = current_node
-        else:
-            new_node.parent = self.root
+        # 親世代をすべてみつけるまでループ. 無しなら実行されない.
+        while parents_set:
+            # 今見ているノードの子を集合としてとる
+            current_children_set = set(child.name for child in current_node.children)
+            next_node = parents_set & current_children_set
+            if next_node:
+                next_node_name = next_node.pop()
+            else:
+                logger.error(f"The parent node of {name} does not exist in the tree.")
+                exit()
+            parents_set.discard(next_node_name)
+            # 今見ているノードを更新する（次の枝に進む）
+            if current_node.children:
+                current_node = [
+                    child
+                    for child in current_node.children
+                    if child.name == next_node_name
+                ][0]
+        # 親世代をすべて見つけたときのノードが親になる
+        # 親世代なしならrootが親として登録される.
+        new_node.parent = current_node
         current_node.children.append(new_node)
         self.nodes_num += 1
 
@@ -72,7 +75,7 @@ class Tree:
                 self.print_childtree(next_node, False)
 
     def leaf_generator(self, node):
-        # node以下の葉ノードのgeneratorを返す. self.rootを指定すれば全ての葉のイテレータになる.
+        # node以下の葉ノードのgeneratorを返す. self.rootを指定すれば全ての葉を出力するイテレータになる.
         if node.children:
             for child in node.children:
                 yield from self.leaf_generator(child)
@@ -110,6 +113,7 @@ def get_data_obj():
     )
     # !1などがデータに含まれており正常に読めないので置換
     scr_contents = scr_contents.replace("!", "-")
+    # RLCONF=で始まるjavascript文が欲しいデータなのでそこを拾う
     json_str_match = re.search(r"RLCONF=(.*?);", scr_contents)
     if json_str_match:
         json_str = json_str_match.groups()[0]
@@ -122,13 +126,13 @@ def get_data_obj():
     else:
         logger.error("(json str) match object is empty.")
 
-    subobj = obj["wgGraphSpecs"]["443a4f936911bcdc9c09725722ce4df318bcbdef"]["data"][1][
-        "values"
-    ]
     subobj = [
-        {k: data[k] for k in data if k != "so" and k != "code"} for data in subobj
+        {k: data[k] for k in data if k != "so" and k != "code"}
+        for data in obj["wgGraphSpecs"]["443a4f936911bcdc9c09725722ce4df318bcbdef"][
+            "data"
+        ][1]["values"]
     ]
-    # subobjはリストに書かれるデータの配列になっている.
+    # subobjは欲しいデータ（辞書形式）の配列になっている.
     # これから木構造を作成して, その後目的のデータ構造にパースする.
     return subobj
 
@@ -151,6 +155,8 @@ def making_tree(obj):
 
 
 def make_json_data(tree):
+    # 木構造から目的のデータ構造を返す
+    # 辞書の配列形式にする.
     result = []
     for node in tree.leaf_generator(tree.root):
         manicipality = {}
@@ -160,7 +166,7 @@ def make_json_data(tree):
         has_county = bool(node.name[-1] in ["町", "村"])
         while current_node.name != "root":
             fullname = current_node.name + fullname
-            # 町か村で終わっているなら郡を探してそれもくっつける.
+            # 町か村で終わっているなら郡を探してそれも名前にくっつける.
             # 東京都島嶼部は上をたどっても郡はないので無視できる.
             if has_county and current_node.name[-1] == "郡":
                 name = current_node.name + name
@@ -169,6 +175,7 @@ def make_json_data(tree):
         manicipality["fullname"] = fullname
         # manicipality["name"] = getattr(node, "disambiguation", "") + node.name
         manicipality["name"] = name
+        # アプリで読み込む場合ルビはsmallText属性に入れておくと良い
         manicipality["smallText"] = node.ruby
         result.append(manicipality)
 
@@ -176,10 +183,7 @@ def make_json_data(tree):
 
 
 def main():
-    obj = get_data_obj()
-    tree = making_tree(obj)
-    # tree.print_childtree(tree.root)
-    result = make_json_data(tree)
+    result = make_json_data(making_tree(get_data_obj()))
     with open("./manicipalities.json", mode="w") as f:
         f.write(result)
 
